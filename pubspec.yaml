@@ -35,7 +35,7 @@ dependencies:
   provider: ^6.1.2             # To manage login and AI data states
   fl_chart: ^1.1.1            # For SBM-style data analytics
   flutter_map: ^8.2.2          # Open-source maps (SBM style)
-  latlong2: ^0.9.1             # Coordinate handling for maps
+  latlong2: ^0.9.1           # Coordinate handling for maps
   http: ^1.2.1                 # For future API/Backend calls
   responsive_framework: ^1.5.1 # Crucial for Web/Desktop responsiveness
   
