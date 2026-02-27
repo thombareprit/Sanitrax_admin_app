@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:latlong2/latlong.dart'; 
 import 'package:sanitrix_admin_app/core/services/data.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -11,31 +11,28 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen>
-    with TickerProviderStateMixin {
+class _DashboardScreenState extends State<DashboardScreen> with TickerProviderStateMixin {
   late TabController _tabController;
-  String selectedArea = "rajapeth";
+  String selectedArea = "rajapeth"; 
   String? selectedToiletId;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) setState(() {});
+    });
   }
 
-  // Qualitative cleaning logic for the judges
-  String getCleanlinessLabel(double score) {
-    if (score < 0.4) return "Poor";
-    if (score < 0.7) return "Average";
-    return "Excellent";
-  }
+  String getCleanLabel(double score) => score < 0.4 ? "Poor" : (score < 0.7 ? "Avg" : "Excellent");
 
   @override
   Widget build(BuildContext context) {
     final data = MockDataService.getAreaAnalytics(selectedArea);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F2F5),
+      backgroundColor: const Color(0xFFF4F7FA),
       body: Row(
         children: [
           _buildSidebar(),
@@ -49,15 +46,15 @@ class _DashboardScreenState extends State<DashboardScreen>
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // LEFT PANEL: Data & Infographics
-                        _buildDataSidePanel(data),
+                        SizedBox(
+                          width: 380,
+                          child: _tabController.index == 0 
+                              ? _buildWardBento(data) 
+                              : _buildToiletBento(),
+                        ),
                         const SizedBox(width: 12),
-
-                        // CENTER: OpenStreetMap Scatter Map
-                        Expanded(child: _buildScatterMap()),
+                        Expanded(child: _buildMapSection()),
                         const SizedBox(width: 12),
-
-                        // RIGHT: Urgent Alerts
                         _buildAlertPanel(data['alerts'] ?? []),
                       ],
                     ),
@@ -73,536 +70,218 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   // ==========================================
-  // TOP NAVIGATION & FILTERS
+  // WARD BENTO (FIXED OVERFLOW & NO HEADINGS)
   // ==========================================
-  Widget _buildTopBar() {
-    return Container(
-      height: 65,
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Row(
-        children: [
-          TabBar(
-            controller: _tabController,
-            isScrollable: true,
-            labelStyle: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 13,
-            ),
-            labelColor: const Color(0xFF1B263B),
-            indicatorColor: const Color(0xFF1B263B),
-            onTap: (_) => setState(() {}),
-            tabs: const [
-              Tab(text: "WARD SUMMARY"),
-              Tab(text: "TOILET DETAILS"),
+  Widget _buildWardBento(Map<String, dynamic> d) {
+    return Column(
+      children: [
+        _bentoBox(
+          flex: 3, // Increased flex to fix 11px overflow
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _sectionLabel("WARD INVENTORY"),
+              const SizedBox(height: 12),
+              _hardwareSummary(d),
             ],
           ),
-          const Spacer(),
-          _dropLabel(
-            "WARD:",
-          ), // Grouped by Area but labeled Ward for local context
-          const SizedBox(width: 8),
-          _simpleDrop(
-            selectedArea,
-            MockDataService.getLocations(),
-            (v) => setState(() {
-              selectedArea = v!;
-              selectedToiletId = null;
-            }),
-          ),
-          const SizedBox(width: 25),
-          _dropLabel("TOILET ID:"),
-          const SizedBox(width: 8),
-          _simpleDrop(
-            selectedToiletId,
-            MockDataService.getToiletsInArea(
-              selectedArea,
-            ).map((e) => e['id'].toString()).toList(),
-            (v) => setState(() {
-              selectedToiletId = v;
-              _tabController.animateTo(1);
-            }),
-            hint: "Select ID",
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ==========================================
-  // LEFT PANEL: ANALYTICS & HARDWARE
-  // ==========================================
-  Widget _buildDataSidePanel(Map<String, dynamic> d) {
-    if (_tabController.index == 1 && selectedToiletId != null)
-      return _buildSingleToiletInfo();
-
-    return Container(
-      width: 350,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _sectionTitle("WARD HARDWARE TOTALS"),
-          const SizedBox(height: 12),
-          _hardwareSummary(d),
-          const SizedBox(height: 25),
-          _gauge(
-            "Average Water Storage",
-            d['avgWater'] ?? 0.0,
-            Colors.blue,
-            "${((d['avgWater'] ?? 0) * 100).toInt()}%",
-          ),
-          const SizedBox(height: 20),
-          _gauge(
-            "Cleaning Index",
-            d['avgClean'] ?? 0.0,
-            Colors.teal,
-            "${getCleanlinessLabel(d['avgClean'] ?? 0.0)} (${((d['avgClean'] ?? 0) * 10).toInt()}/10)",
-          ),
-          const SizedBox(height: 25),
-          _sectionTitle("TOILET CATEGORIES"),
-          const SizedBox(height: 10),
-          _pieWithLegend(d['types']),
-          const Spacer(),
-          _sectionTitle("USAGE TREND (24H)"),
-          const SizedBox(height: 10),
-          Expanded(child: _buildLineTrend()),
-        ],
-      ),
-    );
-  }
-
-  // ==========================================
-  // CENTER PANEL: SCATTER MAP (OSM)
-  // ==========================================
-  Widget _buildScatterMap() {
-    final toilets = MockDataService.getToiletsInArea(selectedArea);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.black12),
-      ),
-      child: FlutterMap(
-        options: MapOptions(
-          initialCenter: LatLng(20.918655, 77.757865), // Amravati Center
-          initialZoom: 14.5,
         ),
-        children: [
-          TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'com.sanitrix.admin',
+        const SizedBox(height: 12),
+        _bentoBox(
+          flex: 4,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _sectionLabel("TYPE DISTRIBUTION"),
+              Expanded(child: _pieWithLegend(d['types'])),
+            ],
           ),
-          CircleLayer(
-            circles: toilets.map((t) {
-              final usage = t['usageCountToday'] as int;
-              // Usage Intensity Color Logic
-              final dotColor = usage > 25
-                  ? Colors.redAccent.withValues(alpha: 0.8)
-                  : const Color(0xFF415A77).withValues(alpha: 0.7);
-
-              return CircleMarker(
-                point: LatLng(t['lat'] as double, t['lng'] as double),
-                radius: 6.0 + (usage / 10), // Dot grows with usage
-                useRadiusInMeter: false,
-                color: dotColor,
-                borderColor: Colors.white,
-                borderStrokeWidth: 2,
-              );
-            }).toList(),
+        ),
+        const SizedBox(height: 12),
+        _bentoBox(
+          flex: 3,
+          child: Center( // Center only the charts, no heading
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _circularMetric("Hygiene", d['avgClean'] ?? 0.0, Colors.teal),
+                _circularMetric("Water", d['avgWater'] ?? 0.0, Colors.blue),
+              ],
+            ),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 12),
+        _bentoBox(
+          flex: 3,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _sectionLabel("24H USAGE TREND"),
+              Expanded(child: _lineChart()),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
   // ==========================================
-  // TOILET DETAIL VIEW
+  // TOILET BENTO (CONSISTENT STYLE)
   // ==========================================
-  Widget _buildSingleToiletInfo() {
+  Widget _buildToiletBento() {
+    if (selectedToiletId == null) return _bentoBox(child: const Center(child: Text("Select a Toilet ID")));
     final t = MockDataService.getToiletDetails(selectedToiletId!)!;
-    double waterPercent = (t['waterLevel'] as num).toDouble() / 100;
-    double cleanScore = (t['cleanlinessScore'] as num).toDouble() / 10;
 
-    return Container(
-      width: 350,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "TOILET: ${t['id']}",
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 22,
-              color: Color(0xFF1B263B),
-            ),
+    return Column(
+      children: [
+        _bentoBox(
+          flex: 2,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text("ID: ${t['id']}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 26)),
+                  _ratingBadge(t['avgRating'] ?? 0.0),
+                ],
+              ),
+              Text(t['location']?.toString().toUpperCase() ?? "", style: const TextStyle(fontSize: 13, color: Colors.grey, fontWeight: FontWeight.bold)),
+            ],
           ),
-          Text(
-            t['location'].toString().toUpperCase(),
-            style: const TextStyle(
-              fontSize: 11,
-              color: Colors.grey,
-              fontWeight: FontWeight.w600,
-            ),
+        ),
+        const SizedBox(height: 12),
+        _bentoBox(
+          flex: 6,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _sectionLabel("INTERNAL ASSETS"),
+              const SizedBox(height: 15),
+              Expanded(
+                child: GridView.count(
+                  crossAxisCount: 2, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 1.8,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    _gridIconBox(Icons.man, "Male", t['seatsMale']),
+                    _gridIconBox(Icons.woman, "Female", t['seatsFemale']),
+                    _gridIconBox(Icons.waves, "Urinals", t['urinals']),
+                    _gridIconBox(Icons.wash, "Basins", t['washBasins']),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const Divider(height: 30),
-          _detailRow(
-            "Live Status",
-            t['operationalStatus'],
-            isBold: true,
-            color: t['operationalStatus'] == "Open" ? Colors.green : Colors.red,
+        ),
+        const SizedBox(height: 12),
+        _bentoBox(
+          flex: 5,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _sectionLabel("TELEMETRY STATUS"),
+              const Spacer(),
+              _gauge("Water Tank", (t['waterLevel'] as num? ?? 0)/100, Colors.blue, "${t['waterLevel']}%"),
+              const SizedBox(height: 20),
+              _gauge("Sanitation", (t['cleanlinessScore'] as num? ?? 0)/10, Colors.teal, "${t['cleanlinessScore']}/10"),
+              const Spacer(),
+              _statusFooter("Last Cleaned", t['lastCleanedAt']?.toString() ?? "-"),
+            ],
           ),
-          _detailRow("Footfall Today", t['usageCountToday'].toString()),
-          const SizedBox(height: 20),
-          _sectionTitle("HARDWARE INVENTORY"),
-          const SizedBox(height: 10),
-          _infraGrid(t),
-          const SizedBox(height: 30),
-          _gauge(
-            "Water Level",
-            waterPercent,
-            Colors.blue,
-            "${(waterPercent * 100).toInt()}% (${t['waterLevel']}L / ${t['waterTankCapacity']}L)",
-          ),
-          const SizedBox(height: 20),
-          _gauge(
-            "Cleanliness",
-            cleanScore,
-            Colors.teal,
-            "${getCleanlinessLabel(cleanScore)} (${t['cleanlinessScore']}/10)",
-          ),
-          const Spacer(),
-          Text(
-            "Last Cleaned: ${t['lastCleanedAt']}",
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-              color: Colors.blueGrey,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   // ==========================================
-  // REUSABLE UI COMPONENTS
+  // BENTO UI ATOMICS
   // ==========================================
 
-  Widget _hardwareSummary(Map d) => Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: Colors.grey[50],
-      borderRadius: BorderRadius.circular(4),
-    ),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        _minStat("M-Seats", d['seatsM']),
-        _minStat("F-Seats", d['seatsF']),
-        _minStat("Urinals", d['urinals']),
-        _minStat("Basins", d['basins']),
-      ],
+  Widget _bentoBox({required Widget child, int flex = 1}) => Expanded(
+    flex: flex,
+    child: Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 2))],
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.1)),
+      ),
+      child: child,
     ),
   );
 
-  Widget _infraGrid(Map t) => Wrap(
-    spacing: 8,
-    runSpacing: 8,
-    children: [
-      _chip(Icons.man, "Male", t['seatsMale']),
-      _chip(Icons.woman, "Female", t['seatsFemale']),
-      _chip(Icons.waves, "Urinals", t['urinals']),
-      _chip(Icons.water_drop, "Basins", t['washBasins']),
-    ],
-  );
-
-  Widget _chip(IconData i, String l, dynamic v) => Container(
-    width: 70,
-    padding: const EdgeInsets.all(8),
-    decoration: BoxDecoration(
-      border: Border.all(color: Colors.black12),
-      borderRadius: BorderRadius.circular(4),
-    ),
-    child: Column(
+  Widget _circularMetric(String label, double value, Color color) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(i, size: 14, color: Colors.blueGrey),
-        Text(
-          v.toString(),
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+        SizedBox(
+          height: 85, width: 85,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              CircularProgressIndicator(value: value, color: color, strokeWidth: 8, backgroundColor: color.withValues(alpha: 0.1)),
+              Text("${(value * 100).toInt()}%", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            ],
+          ),
         ),
-        Text(l, style: const TextStyle(fontSize: 8, color: Colors.grey)),
+        const SizedBox(height: 8),
+        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+      ],
+    );
+  }
+
+  Widget _hardwareSummary(Map d) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      _iconStat(Icons.man, "M-Seats", d['seatsM']),
+      _iconStat(Icons.woman, "F-Seats", d['seatsF']),
+      _iconStat(Icons.waves, "Urinals", d['urinals']),
+      _iconStat(Icons.wash, "Basins", d['basins']),
+    ],
+  );
+
+  Widget _iconStat(IconData i, String l, dynamic v) => Column(children: [Icon(i, size: 24, color: const Color(0xFF415A77)), const SizedBox(height: 4), Text(v.toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), Text(l, style: const TextStyle(fontSize: 9, color: Colors.grey, fontWeight: FontWeight.bold))]);
+
+  Widget _gridIconBox(IconData icon, String label, dynamic val) => Container(
+    decoration: BoxDecoration(color: const Color(0xFFF8F9FA), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.black12)),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 32, color: const Color(0xFF1B263B)),
+        const SizedBox(width: 12),
+        Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(val.toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+          Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
+        ])
       ],
     ),
   );
 
-  Widget _minStat(String l, dynamic v) => Column(
-    children: [
-      Text(
-        v.toString(),
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-      ),
-      Text(l, style: const TextStyle(fontSize: 8, color: Colors.grey)),
-    ],
-  );
-
-  Widget _gauge(String title, double val, Color c, String statusText) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-          ),
-          Text(
-            statusText,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              color: c,
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 8),
-      LinearProgressIndicator(
-        value: val,
-        color: c,
-        backgroundColor: c.withOpacity(0.1),
-        minHeight: 10,
-      ),
-    ],
-  );
+  // --- STANDARD HELPERS (No changes) ---
 
   Widget _pieWithLegend(Map<String, int>? data) {
     if (data == null) return const SizedBox();
-    final colors = [
-      const Color(0xFF1B263B),
-      const Color(0xFF415A77),
-      const Color(0xFF778DA9),
-    ];
-    return Row(
-      children: [
-        SizedBox(
-          width: 80,
-          height: 80,
-          child: PieChart(
-            PieChartData(
-              sections: data.entries
-                  .map(
-                    (e) => PieChartSectionData(
-                      value: e.value.toDouble(),
-                      color: colors[data.keys.toList().indexOf(e.key) % 3],
-                      radius: 15,
-                      showTitle: false,
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-        ),
-        const SizedBox(width: 15),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: data.entries
-                .map(
-                  (e) => Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        color: colors[data.keys.toList().indexOf(e.key) % 3],
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        "${e.key} (${e.value})",
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-                .toList(),
-          ),
-        ),
-      ],
-    );
+    final colors = [const Color(0xFF6366F1), const Color(0xFFEC4899), const Color(0xFF10B981)];
+    return Column(children: [
+        
+        Expanded(child: PieChart(PieChartData(centerSpaceRadius: 30, sections: data.entries.map((e) => PieChartSectionData(value: e.value.toDouble(), color: colors[data.keys.toList().indexOf(e.key) % colors.length], radius: 22, showTitle: false)).toList()))),
+        const SizedBox(height: 8),
+        Wrap(spacing: 12, children: data.entries.map((e) => Row(mainAxisSize: MainAxisSize.min, children: [Container(width: 8, height: 8, decoration: BoxDecoration(color: colors[data.keys.toList().indexOf(e.key) % colors.length], shape: BoxShape.circle)), const SizedBox(width: 6), Text("${e.key} (${e.value})", style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold))])).toList()),
+      ]);
   }
-
-  Widget _buildLineTrend() => LineChart(
-    LineChartData(
-      gridData: FlGridData(show: false),
-      titlesData: FlTitlesData(show: false),
-      borderData: FlBorderData(show: false),
-      lineBarsData: [
-        LineChartBarData(
-          spots: [
-            const FlSpot(0, 2),
-            const FlSpot(4, 4),
-            const FlSpot(8, 3),
-            const FlSpot(12, 7),
-            const FlSpot(16, 5),
-            const FlSpot(20, 6),
-          ],
-          isCurved: true,
-          color: const Color(0xFF415A77),
-          barWidth: 4,
-          dotData: FlDotData(show: false),
-          belowBarData: BarAreaData(
-            show: true,
-            gradient: LinearGradient(
-              colors: [
-                const Color(0xFF415A77).withOpacity(0.2),
-                Colors.transparent,
-              ],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
-
-  Widget _buildAlertPanel(List alerts) => Container(
-    width: 280,
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(4),
-    ),
-    padding: const EdgeInsets.all(16),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle("URGENT ISSUES"),
-        const SizedBox(height: 15),
-        Expanded(
-          child: ListView.builder(
-            itemCount: alerts.length,
-            itemBuilder: (ctx, i) => Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.05),
-                border: Border(
-                  left: BorderSide(color: Colors.redAccent, width: 3),
-                ),
-              ),
-              child: Text(
-                "Toilet ${alerts[i]['id']}: System Alert",
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.red,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
-
-  Widget _sectionTitle(String t) => Text(
-    t,
-    style: const TextStyle(
-      fontWeight: FontWeight.bold,
-      color: Colors.blueGrey,
-      fontSize: 10,
-      letterSpacing: 1.2,
-    ),
-  );
-  Widget _buildSidebar() => Container(
-    width: 60,
-    color: const Color(0xFF0D1B2A),
-    child: const Column(
-      children: [
-        SizedBox(height: 40),
-        Icon(Icons.analytics_rounded, color: Colors.white70),
-      ],
-    ),
-  );
-  Widget _simpleDrop(
-    String? v,
-    List<String> i,
-    Function(String?) o, {
-    String? hint,
-  }) => DropdownButton<String>(
-    value: v,
-    hint: Text(hint ?? ""),
-    underline: const SizedBox(),
-    style: const TextStyle(
-      fontWeight: FontWeight.bold,
-      color: Color(0xFF1B263B),
-      fontSize: 13,
-    ),
-    items: i
-        .map((e) => DropdownMenuItem(value: e, child: Text(e.toUpperCase())))
-        .toList(),
-    onChanged: o,
-  );
-  Widget _dropLabel(String t) => Text(
-    t,
-    style: const TextStyle(
-      fontSize: 9,
-      color: Colors.grey,
-      fontWeight: FontWeight.w900,
-    ),
-  );
-  Widget _detailRow(String l, String v, {bool isBold = false, Color? color}) =>
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              l,
-              style: const TextStyle(fontSize: 12, color: Colors.blueGrey),
-            ),
-            Text(
-              v,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: isBold ? FontWeight.w900 : FontWeight.bold,
-                color: color ?? const Color(0xFF1B263B),
-              ),
-            ),
-          ],
-        ),
-      );
-  Widget _bottomStatus() => Container(
-    height: 35,
-    color: const Color(0xFF0D1B2A),
-    padding: const EdgeInsets.symmetric(horizontal: 20),
-    child: const Row(
-      children: [
-        Icon(Icons.circle, color: Colors.green, size: 7),
-        SizedBox(width: 8),
-        Text(
-          "COMMAND CENTER ACTIVE | SENSORS: ONLINE",
-          style: TextStyle(
-            color: Colors.white60,
-            fontSize: 8,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1,
-          ),
-        ),
-      ],
-    ),
-  );
+  Widget _lineChart() => LineChart(LineChartData(gridData: FlGridData(show: false), titlesData: FlTitlesData(show: false), borderData: FlBorderData(show: false), lineBarsData: [LineChartBarData(spots: [const FlSpot(0, 3), const FlSpot(5, 6), const FlSpot(10, 4), const FlSpot(15, 8), const FlSpot(20, 7)], isCurved: true, color: const Color(0xFF6366F1), barWidth: 4, dotData: FlDotData(show: false), belowBarData: BarAreaData(show: true, color: const Color(0xFF6366F1).withValues(alpha: 0.1)))]));
+  Widget _sectionLabel(String t) => Text(t, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey, fontSize: 11, letterSpacing: 1.2));
+  Widget _ratingBadge(double rating) => Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: Colors.amber, borderRadius: BorderRadius.circular(20)), child: Row(children: [const Icon(Icons.star, size: 14, color: Colors.white), const SizedBox(width: 4), Text(rating.toString(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14))]));
+  Widget _gauge(String t, double v, Color c, String s) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(t, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)), Text(s, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: c))]), const SizedBox(height: 8), ClipRRect(borderRadius: BorderRadius.circular(6), child: LinearProgressIndicator(value: v, color: c, backgroundColor: c.withValues(alpha: 0.1), minHeight: 12))]);
+  Widget _statusFooter(String l, String v) => Container(width: double.infinity, padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(8)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(l, style: const TextStyle(fontSize: 11, color: Colors.grey)), Text(v, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15))]));
+  Widget _buildTopBar() => Container(height: 65, color: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 20), child: Row(children: [TabBar(controller: _tabController, isScrollable: true, labelStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14), indicatorColor: const Color(0xFF1B263B), tabs: const [Tab(text: "WARD SUMMARY"), Tab(text: "TOILET DETAILS")]), const Spacer(), _topDrop(selectedArea, MockDataService.getLocations(), (v) => setState(() { selectedArea = v!; selectedToiletId = null; })), const SizedBox(width: 25), _topDrop(selectedToiletId, MockDataService.getToiletsInArea(selectedArea).map((e) => e['id'].toString()).toList(), (v) => setState(() { selectedToiletId = v; _tabController.animateTo(1); }), hint: "Select ID")]));
+  Widget _topDrop(String? v, List<String> i, Function(String?) o, {String? hint}) => DropdownButton<String>(value: v, hint: Text(hint ?? ""), underline: const SizedBox(), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1B263B), fontSize: 15), items: i.map((e) => DropdownMenuItem(value: e, child: Text(e.toUpperCase()))).toList(), onChanged: o);
+  Widget _buildSidebar() => Container(width: 60, color: const Color(0xFF0D1B2A), child: const Column(children: [SizedBox(height: 40), Icon(Icons.analytics_rounded, color: Colors.white70)]));
+  Widget _buildMapSection() => ClipRRect(borderRadius: BorderRadius.circular(16), child: Container(decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.black12)), child: FlutterMap(options: MapOptions(initialCenter: LatLng(20.918655, 77.757865), initialZoom: 14.0), children: [TileLayer(urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', subdomains: const ['a', 'b', 'c']), CircleLayer(circles: MockDataService.getToiletsInArea(selectedArea).map((t) => CircleMarker(point: LatLng(t['lat'] as double, t['lng'] as double), radius: 8.0, color: (t['usageCountToday'] ?? 0) > 25 ? Colors.redAccent.withValues(alpha: 0.8) : const Color(0xFF1B263B).withValues(alpha: 0.8), borderColor: Colors.white, borderStrokeWidth: 2)).toList())])));
+  Widget _buildAlertPanel(List alerts) => SizedBox(width: 300, child: Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.black12)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [_sectionLabel("OPERATIONAL ALERTS"), const SizedBox(height: 12), Expanded(child: ListView.builder(itemCount: alerts.length, itemBuilder: (ctx, i) => Container(margin: const EdgeInsets.only(bottom: 10), padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.05), border: Border(left: BorderSide(color: Colors.redAccent, width: 4))), child: Row(children: [const Icon(Icons.warning_amber_rounded, size: 18, color: Colors.redAccent), const SizedBox(width: 10), Expanded(child: Text("Toilet ${alerts[i]['id']}: System Alert", style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.red)))]))))])));
+  Widget _bottomStatus() => Container(height: 35, color: const Color(0xFF0D1B2A), padding: const EdgeInsets.symmetric(horizontal: 20), child: const Row(children: [Icon(Icons.circle, color: Colors.green, size: 7), SizedBox(width: 8), Text("COMMAND CENTER ACTIVE", style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold))]));
 }
